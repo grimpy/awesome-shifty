@@ -16,6 +16,7 @@ local awful = require("awful")
 local wibox = require("wibox")
 local pairs = pairs
 local io = io
+local awesome = awesome
 local tonumber = tonumber
 local dbg= dbg
 local capi = {
@@ -27,6 +28,8 @@ local capi = {
     root = root,
     timer = timer
 }
+
+awesome.register_xproperty("WM_TAGNAME", "string")
 
 local shifty = {}
 
@@ -60,6 +63,14 @@ shifty.config.delete_deserted = true
 local matchp = ""
 local index_cache = {}
 for i = 1, capi.screen.count() do index_cache[i] = {} end
+
+function split(s, delimiter)
+    result = {};
+    for match in (s..delimiter):gmatch("(.-)"..delimiter) do
+        table.insert(result, match);
+    end
+    return result;
+end
 
 --name2tags: matches string 'name' to tag objects
 -- @param name : tag name to find
@@ -480,6 +491,10 @@ function match(c, startup)
     local name = c.name
     local keys = shifty.config.clientkeys or c:keys() or {}
     local target_screen = capi.mouse.screen
+    local proptags = c:get_xproperty("WM_TAGNAME")
+    if string.len(proptags) ~= 0 then
+        target_tag_names = split(proptags, ",")
+    end
 
     c.border_color = beautiful.border_normal
     c.border_width = beautiful.border_width
@@ -549,7 +564,7 @@ function match(c, startup)
             -- set attributes
             if matched then
                 if a.screen then target_screen = a.screen end
-                if a.tag then
+                if a.tag and #target_tag_names == 0 then
                     if type(a.tag) == "string" then
                         target_tag_names = {a.tag}
                     else
@@ -1102,6 +1117,24 @@ function getlayout(name)
     end
 end
 
+function updatetags(c)
+    local tags = ""
+    for i, tag in ipairs(c:tags()) do
+        if string.len(tags) ~= 0 then
+            tags = tags .. ","
+        end
+        tags = tags .. tag.name
+    end
+    c:set_xproperty('WM_TAGNAME', tags)
+    
+end
+
+function tagrenamed(t)
+    for i, c in ipairs(t:clients()) do
+        updatetags(c)
+    end
+end
+
 -- add signals before using them
 -- Note: these signals are emitted when tag properties
 -- are accessed through awful.tag.setproperty
@@ -1122,9 +1155,12 @@ capi.tag.add_signal("property::icon_only")
 capi.tag.add_signal("property::sweep_delay")
 capi.tag.add_signal("property::overload_keys")
 
+capi.tag.connect_signal("property::name", tagrenamed)
 -- replace awful's default hook
 capi.client.connect_signal("manage", match)
 capi.client.connect_signal("unmanage", sweep)
+capi.client.connect_signal("tagged", updatetags)
+capi.client.connect_signal("untagged", updatetags)
 capi.client.disconnect_signal("manage", awful.tag.withcurrent)
 
 for s = 1, capi.screen.count() do
